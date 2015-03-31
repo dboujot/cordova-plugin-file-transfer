@@ -212,19 +212,6 @@ namespace WPCordovaClassLib.Cordova.Commands
         }
 
         /// <summary>
-        /// Represents a request header passed from Javascript to upload/download operations
-        /// </summary>
-        [DataContract]
-        protected struct Header
-        {
-            [DataMember(Name = "name")]
-            public string Name;
-
-            [DataMember(Name = "value")]
-            public string Value;
-        }
-
-        /// <summary>
         /// Upload options
         /// </summary>
         //private TransferOptions uploadOptions;
@@ -323,20 +310,6 @@ namespace WPCordovaClassLib.Cordova.Commands
         }
 
         // example : "{\"Authorization\":\"Basic Y29yZG92YV91c2VyOmNvcmRvdmFfcGFzc3dvcmQ=\"}"
-        /*protected Dictionary<string, string> parseHeaders(string jsonHeaders)
-        {
-            try
-            {
-                return JsonHelper.Deserialize<Header[]>(jsonHeaders)
-                    .ToDictionary(header => header.Name, header => header.Value);
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine("Failed to parseHeaders from string :: " + jsonHeaders);
-                Debug.WriteLine("Failed to parseHeaders from string :: ", ex);
-            }
-            return new Dictionary<string, string>();
-        }*/
 
         protected Dictionary<string, string> parseHeaders(string jsonHeaders)
         {
