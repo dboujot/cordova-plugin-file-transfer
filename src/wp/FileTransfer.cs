@@ -1,26 +1,28 @@
 /*
-	Licensed under the Apache License, Version 2.0 (the "License");
-	you may not use this file except in compliance with the License.
-	You may obtain a copy of the License at
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
-	Unless required by applicable law or agreed to in writing, software
-	distributed under the License is distributed on an "AS IS" BASIS,
-	WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-	See the License for the specific language governing permissions and
-	limitations under the License.
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
 */
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.IsolatedStorage;
+using System.Linq;
 using System.Net;
 using System.Runtime.Serialization;
 using System.Windows;
 using System.Security;
 using System.Diagnostics;
+using WPCordovaClassLib.Cordova.JSON;
 
 namespace WPCordovaClassLib.Cordova.Commands
 {
@@ -84,7 +86,7 @@ namespace WPCordovaClassLib.Cordova.Commands
         public const int ConnectionError = 3;
         public const int AbortError = 4; // not really an error, but whatevs
 
-        private static Dictionary<string, DownloadRequestState> InProcDownloads = new Dictionary<string,DownloadRequestState>();
+        private static Dictionary<string, DownloadRequestState> InProcDownloads = new Dictionary<string, DownloadRequestState>();
 
         /// <summary>
         /// Uploading response info
@@ -210,6 +212,19 @@ namespace WPCordovaClassLib.Cordova.Commands
         }
 
         /// <summary>
+        /// Represents a request header passed from Javascript to upload/download operations
+        /// </summary>
+        [DataContract]
+        protected struct Header
+        {
+            [DataMember(Name = "name")]
+            public string Name;
+
+            [DataMember(Name = "value")]
+            public string Value;
+        }
+
+        /// <summary>
         /// Upload options
         /// </summary>
         //private TransferOptions uploadOptions;
@@ -246,7 +261,7 @@ namespace WPCordovaClassLib.Cordova.Commands
                     uploadOptions.Params = args[5];
 
                     bool trustAll = false;
-                    bool.TryParse(args[6],out trustAll);
+                    bool.TryParse(args[6], out trustAll);
                     uploadOptions.TrustAllHosts = trustAll;
 
                     bool doChunked = false;
@@ -300,14 +315,30 @@ namespace WPCordovaClassLib.Cordova.Commands
 
                 webRequest.BeginGetRequestStream(uploadCallback, reqState);
             }
-            catch (Exception /*ex*/)
+            catch (Exception ex)
             {
-                DispatchCommandResult(new PluginResult(PluginResult.Status.ERROR, new FileTransferError(ConnectionError)),callbackId);
+                Debug.WriteLine("Failed to upload ", ex);
+                DispatchCommandResult(new PluginResult(PluginResult.Status.ERROR, new FileTransferError(ConnectionError)), callbackId);
             }
         }
 
         // example : "{\"Authorization\":\"Basic Y29yZG92YV91c2VyOmNvcmRvdmFfcGFzc3dvcmQ=\"}"
-        protected Dictionary<string,string> parseHeaders(string jsonHeaders)
+        /*protected Dictionary<string, string> parseHeaders(string jsonHeaders)
+        {
+            try
+            {
+                return JsonHelper.Deserialize<Header[]>(jsonHeaders)
+                    .ToDictionary(header => header.Name, header => header.Value);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Failed to parseHeaders from string :: " + jsonHeaders);
+                Debug.WriteLine("Failed to parseHeaders from string :: ", ex);
+            }
+            return new Dictionary<string, string>();
+        }*/
+
+        protected Dictionary<string, string> parseHeaders(string jsonHeaders)
         {
             try
             {
@@ -334,9 +365,10 @@ namespace WPCordovaClassLib.Cordova.Commands
                 }
                 return result;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 Debug.WriteLine("Failed to parseHeaders from string :: " + jsonHeaders);
+                Debug.WriteLine("Failed to parseHeaders from string :: ", ex);
             }
             return null;
         }
@@ -357,7 +389,7 @@ namespace WPCordovaClassLib.Cordova.Commands
                 downloadOptions.FilePath = optionStrings[1];
 
                 bool trustAll = false;
-                bool.TryParse(optionStrings[2],out trustAll);
+                bool.TryParse(optionStrings[2], out trustAll);
                 downloadOptions.TrustAllHosts = trustAll;
 
                 downloadOptions.Id = optionStrings[3];
@@ -377,7 +409,7 @@ namespace WPCordovaClassLib.Cordova.Commands
                 {
                     using (IsolatedStorageFile isoFile = IsolatedStorageFile.GetUserStoreForApplication())
                     {
-                        string cleanUrl = downloadOptions.Url.Replace("x-wmapp0:", "").Replace("file:", "").Replace("//","");
+                        string cleanUrl = downloadOptions.Url.Replace("x-wmapp0:", "").Replace("file:", "").Replace("//", "");
 
                         // pre-emptively create any directories in the FilePath that do not exist
                         string directoryName = getDirectoryName(downloadOptions.FilePath);
@@ -730,11 +762,18 @@ namespace WPCordovaClassLib.Cordova.Commands
                             byte[] formItemBytes = System.Text.Encoding.UTF8.GetBytes(formItem);
                             requestStream.Write(formItemBytes, 0, formItemBytes.Length);
                         }
-                        requestStream.Write(boundaryBytes, 0, boundaryBytes.Length);
                     }
+
+                    var filePath = reqState.options.FilePath;
+                    var appDirectory = new Uri(Windows.Storage.ApplicationData.Current.LocalFolder.Path).ToString();
+                    if (filePath.StartsWith(appDirectory))
+                    {
+                        filePath = filePath.Replace(appDirectory, "//");
+                    }
+
                     using (IsolatedStorageFile isoFile = IsolatedStorageFile.GetUserStoreForApplication())
                     {
-                        if (!isoFile.FileExists(reqState.options.FilePath))
+                        if (!isoFile.FileExists(filePath))
                         {
                             DispatchCommandResult(new PluginResult(PluginResult.Status.ERROR, new FileTransferError(FileNotFoundError, reqState.options.Server, reqState.options.FilePath, 0)));
                             return;
@@ -743,7 +782,7 @@ namespace WPCordovaClassLib.Cordova.Commands
                         byte[] endRequest = System.Text.Encoding.UTF8.GetBytes(lineEnd + lineStart + Boundary + lineStart + lineEnd);
                         long totalBytesToSend = 0;
 
-                        using (FileStream fileStream = new IsolatedStorageFileStream(reqState.options.FilePath, FileMode.Open, isoFile))
+                        using (FileStream fileStream = new IsolatedStorageFileStream(filePath, FileMode.Open, isoFile))
                         {
                             string headerTemplate = "Content-Disposition: form-data; name=\"{0}\"; filename=\"{1}\"" + lineEnd + "Content-Type: {2}" + lineEnd + lineEnd;
                             string header = string.Format(headerTemplate, reqState.options.FileKey, reqState.options.FileName, reqState.options.MimeType);
@@ -782,8 +821,9 @@ namespace WPCordovaClassLib.Cordova.Commands
 
                 webRequest.BeginGetResponse(ReadCallback, reqState);
             }
-            catch (Exception /*ex*/)
+            catch (Exception ex)
             {
+                Debug.WriteLine("Failed to upload ", ex);
                 if (!reqState.isCancelled)
                 {
                     DispatchCommandResult(new PluginResult(PluginResult.Status.ERROR, new FileTransferError(ConnectionError)), callbackId);
